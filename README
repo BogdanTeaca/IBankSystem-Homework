@@ -1,0 +1,118 @@
+================================================================================
+
+	TEACA BOGDAN
+
+================================================================================
+
+	I. Server
+
+	Pentru citirea datelor despre utilizatori din fisierul dat din linia de
+comanda, am creat in fisierul "server" structura "Utilizator" care sa retina
+toate informatiile unui utilizator din acel fisier, dar si cateva informatii
+suplimentare care sa ma ajute la gestionarea fiecarui utilizator.
+
+	Informatiile suplimentare sunt din structura "Utilizator":
+
+"asteapta_confirmare" - folosit in cadrul transferurilor si are initial valoarea
+-1, iar dupa ce utilizatorul respectiv da comanda de transfer catre un alt cont,
+variabila "asteapta_confimare" ia valoarea numarului de card al utilizatorului
+catre care se face transferul pentru a usura gasirea utilizatorului destinatie
+dupa confirmarea transferului.
+
+"transfer_suma" - retine valoarea sumei care sa fie transferata dupa confirmarea
+comenzii catre utilizatorul destinatie (in cadrul comenzii "transfer")
+
+"card_blocat" - variabila cu rol boolean, 0 = card neblocat, 1 = card blocat
+
+"fd" - file_descriptor-ul corespunzator utilizatorului respectiv, in cadrul
+sesiunii curente
+
+"incercari" - numarul de incercari esuate consecutive pentru logare (la a 3-a
+incercare esuata se blocheaza cardul)
+
+"cerere_deblocare" - valoarea 0 = niciun proces client nu a facut o cerere de
+deblocare,  valoarea 1 = a fost data deja o cerere pentru deblocare, are rol
+de a nu lasa urmatoarele procese client care cer deblocarea aceluiasi card
+simultan (conform enuntului, numai primul proces client poate trimite parola
+cardului, ceilalti primesc codul de eroare -6).
+
+	Pentru incarcarea datelor despre utilizatori, citesc datele din fisierul
+dat ca parametru si le pun intr-un vector de structuri "Utilizator" denumit
+"users". Apoi creez cele doua socket-uri de tip TCP si de tip UDP.
+
+	Pentru selectare (multiplexarea comunicatiei), utilizez functia select si
+structura fd_set initializata cu numele "read_fds". In cazul in care server-ul
+primeste conexiuni noi pe socket-ul TCP, setez (dau valoarea 1) pentru un file
+descriptor din read_fds, care sa corespunda noii conexiuni TCP. Daca server-ul
+primeste date pe socket-ul UDP, inseamna ca se cere o deblocare, deci verific
+daca primeste o comanda "unlock", iar daca da, verific daca numarul de card exista,
+iar daca da, trimit mesaj pe socket-ul UDP pentru cererea parolei pentru deblocarea
+cardului. Dupa primirea parolei, verific daca aceasta este corecta si daca da,
+deblochez cardul.
+
+	Pentru fiecare terminal client conectat care trimite date, verific tipul
+comenzii. Daca este comanda de login, atunci verific daca numarul de card exista
+in baza de date, apoi daca PIN-ul primit este corect, iar daca da, autentific
+utilizatorul, PIN-ul nu este corect, atunci incrementez numarul de incercari
+esuate consecutive pentru cardul respectiv. Daca PIN-ul este valid, resetez
+numarul de incercari esuate consecutive la 0.
+
+	Pentru comanda primita de logout, deconectez de la bancomat utilizatorul
+autentificat de la care serverul a primit comanda.
+
+	Pentru comanda de sold, trimit client-ului de la care server-ul a
+primit comanda, valoarea corespunzatoare utilizatorului autentificat pe acel
+proces client.
+
+	Pentru o comanda primita de transfer, verific daca utilizatorul de la care
+serverul a primit comanda are suficienti bani in cont pentru transfer, apoi verific
+daca numarul de card catre care se face transferul exista, iar daca da, cer
+confirmarea utilizatorului de la care serverul a primit comanda. Daca utilizatorul
+confirma scad valoarea sumei de transfer de la acest utilizator si o adaug la
+utilizatorul destinatie.
+
+	Pentru comanda de deblocare a unui card, verific daca numarul de card
+exista, iar daca da, verific daca acesta este blocat, daca da, atunci trimit
+cerere de parola catre terminalul care a cerut deblocarea cardului. Daca parola
+este corecta, atunci deblochez cardul.
+
+	Pentru o comanda de quit primita de la un client, deloghez utilizatorul
+respectiv daca pe acel client exista un utilizator autentificat.	
+
+================================================================================
+
+	II. Client
+
+	Pentru client, am creat mai multe variabile ajutatoare:
+"sesiune deschisa" - valoarea 0 = un utilizator nu este autentificat in acest
+terminal, valoarea 1 = un utilizator este deja autentificat in acest terminal
+
+"asteapta_confirmare" - variabila cu rol boolean, valoarea 1 = trebuie sa confirm
+transferul
+
+"trimite_parola" - variabila cu rol boolean, valoarea 1 = trebuie sa trimit
+server-ului parola pentru deblocarea contului
+
+	Pentru selectare, procedez asemanator ca la server. Daca clientul
+primeste date pe socket-ul TCP, atunci afisez mesajul primit prefixat de
+"IBANK> " si scriu mesajul si in fisierul log corespunzator acestui client.
+De asemenea pe baza mesajului primit, actualizez anumite variabilele ajutatoare.
+
+	Daca clientul primeste date pe socket-ul UDP, atunci afisez mesajul
+primit prefixat de "UNLOCK> " si scriu mesajul si in fisierul log al clientului.
+Daca primesc de la server mesajul de cerere a parolei pentru deblocarea cardului
+atunci setez valoarea variabilei booleene "trimite_parola".
+
+	Daca clientul trimite mesaje/comenzi server-ului, atunci verific ce
+tip de comanda este, si in functie de faptul ca daca mesajul ce-l trimit este
+un raspuns pentru o comanda anterioara (confirmarea transferului sau trimiterea
+parolei) sau daca comanda are nevoie ca un utilizator sa fie autentificat in
+cadrul acestei sesiuni din terminal, atunci pur si simplu trimit comanda catre
+server sau afisez codul de eroare corespunzator. In cazul comenzii "Unlock"
+adaug si numarul de card asociat utilizatorului inainte sa trimit mesajul catre
+server.
+
+	Daca clientul trimite comanda quit, atunci informez server-ul (ii trimit
+mesajul quit) ca sa ma si delogheze si inchei conexiunea cu server-ul.
+
+================================================================================
